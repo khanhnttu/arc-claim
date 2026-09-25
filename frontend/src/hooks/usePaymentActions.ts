@@ -4,11 +4,11 @@ import { useCallback } from "react";
 import type { Address } from "viem";
 import type { Config } from "wagmi";
 import { readContract, simulateContract, writeContract } from "wagmi/actions";
-import { arcChain } from "@/config/arc";
+import type { ArcNetwork } from "@/config/arc";
 import { ClaimStatus } from "@/contracts/ArcClaim";
 import { FriendlyError } from "@/lib/errors";
 import { formatUsdc, sameAddress } from "@/lib/format";
-import { V1, V2, type PaymentData, type PaymentRef } from "@/lib/payments";
+import { paymentContracts, type PaymentData, type PaymentRef } from "@/lib/payments";
 import { nowSeconds } from "@/lib/tx";
 import { useTxAction, type PreparedTx } from "./useTxAction";
 
@@ -20,8 +20,9 @@ const INACTIVE_MESSAGE: Record<number, string> = {
   [ClaimStatus.REFUNDED]: "This payment was already refunded.",
 };
 
-async function readPayment(config: Config, ref: PaymentRef): Promise<PaymentData> {
-  const chainId = arcChain.id;
+async function readPayment(config: Config, network: ArcNetwork, ref: PaymentRef): Promise<PaymentData> {
+  const chainId = network.chainId;
+  const { V1, V2 } = paymentContracts(network);
   return ref.version === 1
     ? readContract(config, { address: V1.address, abi: V1.abi, functionName: "getClaim", args: [ref.id], chainId })
     : readContract(config, { address: V2.address, abi: V2.abi, functionName: "getPayment", args: [ref.id], chainId });
@@ -54,8 +55,15 @@ function successMessage(action: Action, amount: bigint) {
   return `Expired payment refunded. ${usdc} returned to the sender.`;
 }
 
-async function simulate(config: Config, ref: PaymentRef, action: Action, account: Address): Promise<PreparedTx["send"]> {
-  const chainId = arcChain.id;
+async function simulate(
+  config: Config,
+  network: ArcNetwork,
+  ref: PaymentRef,
+  action: Action,
+  account: Address,
+): Promise<PreparedTx["send"]> {
+  const chainId = network.chainId;
+  const { V1, V2 } = paymentContracts(network);
   if (ref.version === 1) {
     const { request } = await simulateContract(config, {
       address: V1.address,
@@ -83,10 +91,10 @@ function usePaymentAction(action: Action) {
   const { execute } = tx;
   const run = useCallback(
     (ref: PaymentRef) =>
-      execute(async ({ config, account }) => {
-        const p = await readPayment(config, ref);
+      execute(async ({ config, account, network }) => {
+        const p = await readPayment(config, network, ref);
         assertCanRun(action, p, account);
-        const send = await simulate(config, ref, action, account);
+        const send = await simulate(config, network, ref, action, account);
         return { send, successText: successMessage(action, p.amount) };
       }),
     [action, execute],

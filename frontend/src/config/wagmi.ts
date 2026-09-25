@@ -8,7 +8,7 @@ import {
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import { createConfig, http } from "wagmi";
-import { ARC_RPC_URL, WALLETCONNECT_PROJECT_ID, arcChain } from "./arc";
+import { NETWORKS, WALLETCONNECT_PROJECT_ID } from "./arc";
 
 const APP_NAME = "ArcClaim";
 
@@ -24,10 +24,16 @@ const connectors = connectorsForWallets([{ groupName: "Wallets", wallets }], {
   projectId: WALLETCONNECT_PROJECT_ID || "arcclaim-no-walletconnect",
 });
 
+const { testnet, mainnet } = NETWORKS;
+
+// Both Arc networks are always configured; the app-level network switcher picks which one is used.
 export const wagmiConfig = createConfig({
-  chains: [arcChain],
+  chains: [testnet.chain, mainnet.chain],
   connectors,
-  transports: { [arcChain.id]: http(ARC_RPC_URL) },
+  transports: {
+    [testnet.chainId]: http(testnet.rpcUrl),
+    [mainnet.chainId]: http(mainnet.rpcUrl),
+  },
   ssr: true,
 });
 

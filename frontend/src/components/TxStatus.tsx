@@ -1,5 +1,8 @@
+"use client";
+
 import type { Hash } from "viem";
 import { explorerTxUrl } from "@/config/arc";
+import { useNetwork } from "./NetworkProvider";
 import { Notice, Spinner } from "./ui";
 
 /** Inline lifecycle line for a transaction: pending spinner, success or error. */
@@ -38,8 +41,9 @@ export function TxStatus({
 }
 
 function ExplorerLink({ hash }: { hash: Hash }) {
+  const network = useNetwork();
   return (
-    <a href={explorerTxUrl(hash)} target="_blank" rel="noreferrer" className="ml-auto underline underline-offset-2">
+    <a href={explorerTxUrl(network, hash)} target="_blank" rel="noreferrer" className="ml-auto underline underline-offset-2">
       View tx ↗
     </a>
   );

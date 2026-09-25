@@ -1,10 +1,4 @@
-import type { Address } from "viem";
-
-/** Deployed ArcClaim contract on Arc Testnet. */
-export const ARC_CLAIM_ADDRESS: Address = "0xDA2AfE4Ced93C02427F9924A628568D8405f5Dc4";
-
-/** Block the contract was deployed in; event scans start here. */
-export const ARC_CLAIM_DEPLOY_BLOCK = 63_741_415n;
+// Phase 1 ArcClaim. Deployment addresses per network live in src/config/arc.ts.
 
 export const ClaimStatus = {
   NONE: 0,
@@ -138,8 +132,3 @@ export const arcClaimAbi = [
   },
 ] as const;
 
-/** Shared config spread into wagmi read/write calls. */
-export const arcClaimContract = {
-  address: ARC_CLAIM_ADDRESS,
-  abi: arcClaimAbi,
-} as const;

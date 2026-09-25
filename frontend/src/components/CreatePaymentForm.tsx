@@ -8,8 +8,9 @@ import { useCreatePayment, type CreateStep } from "@/hooks/useCreatePayment";
 import { useNow } from "@/hooks/useNow";
 import { useUsdcBalance } from "@/hooks/useUsdcBalance";
 import { formatUsdc } from "@/lib/format";
-import { isV2Enabled } from "@/lib/payments";
+import { paymentContracts } from "@/lib/payments";
 import { CreateSuccess } from "./CreateSuccess";
+import { useNetwork } from "./NetworkProvider";
 import { EXPIRY_PRESETS, ExpiryPicker, expiryError, resolveExpiry, type ExpiryChoice } from "./ExpiryPicker";
 import { WalletButton } from "./WalletButton";
 import { Button, Card, Notice, Spinner, cn } from "./ui";
@@ -42,6 +43,7 @@ function validate(recipient: string, amount: string, balance: bigint | undefined
 
 export function CreatePaymentForm({ prefill }: { prefill?: PaymentPrefill }) {
   const { address, isConnected } = useAccount();
+  const { isV2Enabled } = paymentContracts(useNetwork());
   const balance = useUsdcBalance(address);
   const tx = useCreatePayment();
   const now = useNow();

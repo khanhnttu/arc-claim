@@ -4,6 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { Address, Hash } from "viem";
 import { useConfig, type Config } from "wagmi";
+import type { ArcNetwork } from "@/config/arc";
+import { useNetwork } from "@/components/NetworkProvider";
 import { toFriendlyMessage } from "@/lib/errors";
 import { refreshChainReads, requireArcAccount, waitForSuccess } from "@/lib/tx";
 
@@ -21,7 +23,7 @@ export const TX_PHASE_MESSAGE: Record<TxPhase, string> = {
 /** What a prepared action hands back: a function that submits the tx, and the success copy. */
 export type PreparedTx = { send: () => Promise<Hash>; successText: string };
 
-export type Prepare = (ctx: { config: Config; account: Address }) => Promise<PreparedTx>;
+export type Prepare = (ctx: { config: Config; account: Address; network: ArcNetwork }) => Promise<PreparedTx>;
 
 /**
  * Shared lifecycle for single-transaction actions (claim, cancel, refund):
@@ -29,6 +31,7 @@ export type Prepare = (ctx: { config: Config; account: Address }) => Promise<Pre
  */
 export function useTxAction() {
   const config = useConfig();
+  const network = useNetwork();
   const queryClient = useQueryClient();
   const [phase, setPhase] = useState<TxPhase>("idle");
   const [error, setError] = useState<string>();
@@ -49,23 +52,23 @@ export function useTxAction() {
       setTxHash(undefined);
       try {
         setPhase("checking");
-        const account = await requireArcAccount(config);
-        const { send, successText } = await prepare({ config, account });
+        const account = await requireArcAccount(config, network);
+        const { send, successText } = await prepare({ config, account, network });
         setPhase("wallet");
         const hash = await send();
         setTxHash(hash);
         setPhase("pending");
-        await waitForSuccess(config, hash);
+        await waitForSuccess(config, network, hash);
         setSuccessText(successText);
         setPhase("success");
       } catch (e) {
-        setError(toFriendlyMessage(e));
+        setError(toFriendlyMessage(e, network));
         setPhase("error");
       } finally {
         void refreshChainReads(queryClient);
       }
     },
-    [config, queryClient],
+    [config, network, queryClient],
   );
 
   const isBusy = phase === "checking" || phase === "wallet" || phase === "pending";

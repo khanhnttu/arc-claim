@@ -5,9 +5,9 @@ import { useCallback, useState } from "react";
 import { parseEventLogs, zeroAddress, type Address, type Hash, type TransactionReceipt } from "viem";
 import { useConfig } from "wagmi";
 import { simulateContract, writeContract } from "wagmi/actions";
-import { arcChain } from "@/config/arc";
+import { useNetwork } from "@/components/NetworkProvider";
 import { FriendlyError, toFriendlyMessage } from "@/lib/errors";
-import { V1, V2, isV1Enabled, isV2Enabled, type PaymentRef } from "@/lib/payments";
+import { paymentContracts, type PaymentContracts, type PaymentRef } from "@/lib/payments";
 import { ensureUsdcAllowance, nowSeconds, refreshChainReads, requireArcAccount, waitForSuccess } from "@/lib/tx";
 
 export type CreateStep =
@@ -50,7 +50,11 @@ export const CREATE_STEP_MESSAGE: Record<CreateStep, string> = {
   error: "",
 };
 
-function readCreatedRef(receipt: TransactionReceipt, version: 1 | 2): PaymentRef | undefined {
+function readCreatedRef(
+  { V1, V2 }: PaymentContracts,
+  receipt: TransactionReceipt,
+  version: 1 | 2,
+): PaymentRef | undefined {
   if (version === 1) {
     const [log] = parseEventLogs({
       abi: V1.abi,
@@ -74,6 +78,7 @@ function readCreatedRef(receipt: TransactionReceipt, version: 1 | 2): PaymentRef
  */
 export function useCreatePayment() {
   const config = useConfig();
+  const network = useNetwork();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<CreateStep>("idle");
   const [needsApproval, setNeedsApproval] = useState(false);
@@ -92,6 +97,8 @@ export function useCreatePayment() {
       setError(undefined);
       setResult(undefined);
       setNeedsApproval(false);
+      const contracts = paymentContracts(network);
+      const { V1, V2, isV1Enabled, isV2Enabled } = contracts;
       const version = isV2Enabled ? 2 : 1;
       const contract = version === 2 ? V2 : V1;
       try {
@@ -102,10 +109,10 @@ export function useCreatePayment() {
         if (expiry !== 0n && expiry <= BigInt(nowSeconds())) throw new FriendlyError("Expiration must be in the future.");
 
         setStep("checking");
-        const sender = await requireArcAccount(config);
-        const chainId = arcChain.id;
+        const sender = await requireArcAccount(config, network);
+        const chainId = network.chainId;
 
-        const approvalTxHash = await ensureUsdcAllowance(config, sender, contract.address, amount, (s) => {
+        const approvalTxHash = await ensureUsdcAllowance(config, network, sender, contract.address, amount, (s) => {
           setNeedsApproval(true);
           setStep(s);
         });
@@ -134,10 +141,10 @@ export function useCreatePayment() {
           txHash = await writeContract(config, request);
         }
         setStep("creating");
-        const receipt = await waitForSuccess(config, txHash);
+        const receipt = await waitForSuccess(config, network, txHash);
 
-        const ref = readCreatedRef(receipt, version);
-        if (!ref) throw new FriendlyError("Payment created, but its ID could not be read. Check the dashboard.");
+        const ref = readCreatedRef(contracts, receipt, version);
+        if (!ref) throw new FriendlyError("Payment created, but its ID could not be read. Check Activity.");
 
         setResult({
           ref,
@@ -151,13 +158,13 @@ export function useCreatePayment() {
         });
         setStep("success");
       } catch (e) {
-        setError(toFriendlyMessage(e));
+        setError(toFriendlyMessage(e, network));
         setStep("error");
       } finally {
         void refreshChainReads(queryClient);
       }
     },
-    [config, queryClient],
+    [config, network, queryClient],
   );
 
   const isBusy = step !== "idle" && step !== "success" && step !== "error";

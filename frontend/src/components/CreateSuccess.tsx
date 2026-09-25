@@ -8,6 +8,7 @@ import { usePayment } from "@/hooks/usePayment";
 import { formatUsdc, shortAddress } from "@/lib/format";
 import { paymentLabel, paymentPath, paymentUrl } from "@/lib/payments";
 import { CopyButton } from "./CopyButton";
+import { useNetwork } from "./NetworkProvider";
 import { ExpiryValue, SettlementRows } from "./SettlementDetails";
 import { StatusBadge } from "./StatusBadge";
 import { Button, Card, DetailRow, buttonClass, cn } from "./ui";
@@ -31,7 +32,7 @@ function headline(status: number | undefined, expired: boolean): { title: string
       return expired
         ? {
             title: "Payment expired",
-            body: "It was not claimed before the deadline. Recover the USDC from your dashboard.",
+            body: "It was not claimed before the deadline. Recover the USDC from Activity.",
             tone: "warning",
           }
         : {
@@ -47,7 +48,8 @@ export function CreateSuccess({ result, onReset }: { result: CreatedPayment; onR
   const { payment, isExpired, isTerminal, now } = usePayment(result.ref);
   const status = payment?.status ?? ClaimStatus.FUNDED;
   const { title, body, tone } = headline(payment?.status, isExpired);
-  const link = paymentUrl(result.ref);
+  const network = useNetwork();
+  const link = paymentUrl(network, result.ref);
 
   return (
     <Card className="p-5 sm:p-7">
@@ -115,7 +117,7 @@ export function CreateSuccess({ result, onReset }: { result: CreatedPayment; onR
 
       <div className="mt-6 flex flex-col gap-2 sm:flex-row">
         <a
-          href={explorerTxUrl(result.txHash)}
+          href={explorerTxUrl(network, result.txHash)}
           target="_blank"
           rel="noreferrer"
           className={buttonClass({ variant: "secondary", className: "flex-1" })}
@@ -123,10 +125,10 @@ export function CreateSuccess({ result, onReset }: { result: CreatedPayment; onR
           Creation tx ↗
         </a>
         <Link
-          href={isExpired && !isTerminal ? "/dashboard" : paymentPath(result.ref)}
+          href={isExpired && !isTerminal ? "/activity" : paymentPath(result.ref)}
           className={buttonClass({ variant: "secondary", className: "flex-1" })}
         >
-          {isExpired && !isTerminal ? "Go to dashboard" : "Open claim page"}
+          {isExpired && !isTerminal ? "Go to Activity" : "Open claim page"}
         </Link>
         <Button variant="ghost" className="flex-1" onClick={onReset}>
           Create another

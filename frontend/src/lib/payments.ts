@@ -1,7 +1,7 @@
 import { isHex, type Address, type Hex } from "viem";
-import { IS_MAINNET, appBaseUrl } from "@/config/arc";
-import { ARC_CLAIM_ADDRESS, ARC_CLAIM_DEPLOY_BLOCK, arcClaimAbi } from "@/contracts/ArcClaim";
-import { ARC_CLAIM_V2_ADDRESS, ARC_CLAIM_V2_DEPLOY_BLOCK, arcClaimV2Abi } from "@/contracts/ArcClaimV2";
+import { shareUrl, type ArcNetwork } from "@/config/arc";
+import { arcClaimAbi } from "@/contracts/ArcClaim";
+import { arcClaimV2Abi } from "@/contracts/ArcClaimV2";
 import { shortAddress } from "./format";
 
 /**
@@ -20,18 +20,21 @@ export type PaymentData = {
   status: number;
 };
 
-/** The Phase 1 contract (ArcClaim v1) was only deployed on Arc Testnet. */
-export const isV1Enabled = !IS_MAINNET;
+/**
+ * The payment contracts on `network`. The Phase 1 contract (ArcClaim v1) only exists on Arc Testnet;
+ * when ArcClaimV2 is deployed, new payments go to it. Addresses come from src/config/arc.ts.
+ */
+export function paymentContracts(network: ArcNetwork) {
+  const { claimV1, claimV2 } = network.contracts;
+  return {
+    isV1Enabled: !!claimV1,
+    isV2Enabled: !!claimV2,
+    V1: { address: claimV1?.address as Address, abi: arcClaimAbi, deployBlock: claimV1?.deployBlock ?? 0n },
+    V2: { address: claimV2?.address as Address, abi: arcClaimV2Abi, deployBlock: claimV2?.deployBlock ?? 0n },
+  } as const;
+}
 
-/** True once ArcClaimV2 has been deployed and configured. New payments then go to v2. */
-export const isV2Enabled = !!ARC_CLAIM_V2_ADDRESS;
-
-export const V1 = { address: ARC_CLAIM_ADDRESS, abi: arcClaimAbi, deployBlock: ARC_CLAIM_DEPLOY_BLOCK } as const;
-export const V2 = {
-  address: ARC_CLAIM_V2_ADDRESS as Address,
-  abi: arcClaimV2Abi,
-  deployBlock: ARC_CLAIM_V2_DEPLOY_BLOCK,
-} as const;
+export type PaymentContracts = ReturnType<typeof paymentContracts>;
 
 /** Settlement event name per status, per contract version. */
 export const SETTLEMENT_EVENTS = {
@@ -44,7 +47,8 @@ export const refKey = (ref: PaymentRef) => `v${ref.version}:${ref.id.toString()}
 export const paymentPath = (ref: PaymentRef) =>
   ref.version === 1 ? `/claim/${ref.id.toString()}` : `/pay/${ref.id}`;
 
-export const paymentUrl = (ref: PaymentRef) => `${appBaseUrl()}${paymentPath(ref)}`;
+/** Shareable claim link; tagged with the network so it opens on the right chain. */
+export const paymentUrl = (network: ArcNetwork, ref: PaymentRef) => shareUrl(network, paymentPath(ref));
 
 /** "#4" for v1, "0x1a2b…9f0e" for v2. */
 export const paymentLabel = (ref: PaymentRef) => (ref.version === 1 ? `#${ref.id}` : shortAddress(ref.id, 4));
@@ -63,7 +67,6 @@ export function parsePaymentId(raw: string | undefined): PaymentRef | undefined 
 
 /** Parse a /claim/[id] route segment into a v1 ref. */
 export function parseClaimId(raw: string | undefined): PaymentRef | undefined {
-  if (!isV1Enabled) return undefined; // Phase 1 links only exist on Arc Testnet
   if (!raw || !/^\d{1,78}$/.test(raw)) return undefined;
   const id = BigInt(raw);
   return id > 0n ? { version: 1, id } : undefined;

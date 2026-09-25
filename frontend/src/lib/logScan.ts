@@ -1,4 +1,4 @@
-import { blockRanges } from "./logs";
+import { blockRanges, throttledLogs } from "./logs";
 
 /** JSON that round-trips bigint (localStorage cache format). */
 export const bigJson = {
@@ -37,7 +37,7 @@ export async function scanLogsIncremental<T>({
   startBlock,
   latest,
   fetchRange,
-  concurrency = 6,
+  concurrency = 3,
   onProgress,
 }: {
   cacheKey: string;
@@ -55,9 +55,12 @@ export async function scanLogsIncremental<T>({
   let done = 0;
   if (ranges.length > 1) onProgress?.({ done, total: ranges.length });
   for (let i = 0; i < ranges.length; i += concurrency) {
-    const batch = await Promise.all(ranges.slice(i, i + concurrency).map(([f, t]) => fetchRange(f, t)));
+    const chunk = ranges.slice(i, i + concurrency);
+    const batch = await Promise.all(chunk.map(([f, t]) => throttledLogs(() => fetchRange(f, t))));
     items.push(...batch.flat());
     done += batch.length;
+    // Checkpoint after every batch, so a failure or reload resumes here instead of from the deploy block.
+    saveCache(cacheKey, { scannedTo: chunk[chunk.length - 1][1], items });
     if (ranges.length > 1) onProgress?.({ done, total: ranges.length });
   }
   onProgress?.(undefined);

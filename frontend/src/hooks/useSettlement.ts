@@ -4,11 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { getAbiItem, type AbiEvent, type Address, type Hash } from "viem";
 import { useConfig } from "wagmi";
 import { getPublicClient } from "wagmi/actions";
-import { arcChain } from "@/config/arc";
+import type { ArcNetwork } from "@/config/arc";
+import { useNetwork } from "@/components/NetworkProvider";
 import { ClaimStatus } from "@/contracts/ArcClaim";
 import { blockRanges, findInRanges } from "@/lib/logs";
 import { loadCache, saveCache } from "@/lib/logScan";
-import { SETTLEMENT_EVENTS, V1, V2, refKey, type PaymentRef } from "@/lib/payments";
+import { SETTLEMENT_EVENTS, paymentContracts, refKey, type PaymentRef } from "@/lib/payments";
 
 /** On-chain record of how a payment left FUNDED, read from its settlement event. */
 export type Settlement = {
@@ -21,8 +22,10 @@ export type Settlement = {
   timestamp?: bigint;
 };
 
-const cacheKey = (ref: PaymentRef) =>
-  `arcclaim:settlement:v2:${arcChain.id}:${(ref.version === 1 ? V1 : V2).address?.toLowerCase()}:${refKey(ref)}`;
+const cacheKey = (network: ArcNetwork, ref: PaymentRef) => {
+  const { V1, V2 } = paymentContracts(network);
+  return `arcclaim:settlement:v2:${network.chainId}:${(ref.version === 1 ? V1 : V2).address?.toLowerCase()}:${refKey(ref)}`;
+};
 
 /**
  * Find the claim / cancel / refund event of a settled payment. `fromBlockHint` (e.g. the creation block)
@@ -30,21 +33,23 @@ const cacheKey = (ref: PaymentRef) =>
  */
 export function useSettlement(ref: PaymentRef | undefined, status: number | undefined, fromBlockHint?: bigint) {
   const config = useConfig();
+  const network = useNetwork();
   const settled =
     status === ClaimStatus.CLAIMED || status === ClaimStatus.CANCELLED || status === ClaimStatus.REFUNDED;
 
   return useQuery({
-    queryKey: ["arcclaim-settlement", ref && refKey(ref), status],
+    queryKey: ["arcclaim-settlement", network.chainId, ref && refKey(ref), status],
     enabled: !!ref && settled,
     staleTime: Infinity,
     retry: 2,
     queryFn: async (): Promise<Settlement | null> => {
       if (!ref || !settled) return null;
-      const cached = loadCache<Settlement>(cacheKey(ref));
+      const cached = loadCache<Settlement>(cacheKey(network, ref));
       if (cached && cached.status === status) return cached;
 
-      const client = getPublicClient(config, { chainId: arcChain.id });
+      const client = getPublicClient(config, { chainId: network.chainId });
       if (!client) return null;
+      const { V1, V2 } = paymentContracts(network);
       const contract = ref.version === 1 ? V1 : V2;
       const eventName = SETTLEMENT_EVENTS[ref.version][status as 2 | 3 | 4];
       const event = getAbiItem({ abi: contract.abi as readonly AbiEvent[], name: eventName }) as AbiEvent;
@@ -72,7 +77,7 @@ export function useSettlement(ref: PaymentRef | undefined, status: number | unde
         blockNumber: log.blockNumber,
         timestamp,
       };
-      saveCache(cacheKey(ref), settlement);
+      saveCache(cacheKey(network, ref), settlement);
       return settlement;
     },
   });

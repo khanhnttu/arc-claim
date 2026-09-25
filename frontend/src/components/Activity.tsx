@@ -3,7 +3,6 @@
 import Link from "next/link";
 import type { Address } from "viem";
 import { useAccount } from "wagmi";
-import { NETWORK_NAME } from "@/config/arc";
 import { explorerAddressUrl, explorerTxUrl } from "@/config/arc";
 import { ClaimStatus } from "@/contracts/ArcClaim";
 import { useNow } from "@/hooks/useNow";
@@ -11,8 +10,9 @@ import { isTerminalStatus } from "@/hooks/usePayment";
 import { useCancelClaim, useRefundExpired } from "@/hooks/usePaymentActions";
 import { useSenderPayments, type SentPayment } from "@/hooks/useSenderPayments";
 import { formatDateTime, formatExpiry, formatUsdc, shortAddress } from "@/lib/format";
-import { isPaymentExpired, isV1Enabled, isV2Enabled, paymentLabel, paymentPath, paymentUrl, refKey } from "@/lib/payments";
+import { isPaymentExpired, paymentContracts, paymentLabel, paymentPath, paymentUrl, refKey } from "@/lib/payments";
 import { CopyButton } from "./CopyButton";
+import { useNetwork } from "./NetworkProvider";
 import { AirdropList } from "./AirdropList";
 import { ResendLink } from "./PaymentView";
 import { SettlementLine } from "./SettlementDetails";
@@ -21,15 +21,17 @@ import { TxStatus } from "./TxStatus";
 import { WalletButton } from "./WalletButton";
 import { Button, Card, Notice, Skeleton, Spinner, buttonClass } from "./ui";
 
-export function Dashboard() {
+export function Activity() {
   const { address, isConnected } = useAccount();
+  const network = useNetwork();
+  const { isV1Enabled, isV2Enabled } = paymentContracts(network);
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Dashboard</h1>
-          <p className="mt-1 text-sm text-muted">Your payments and airdrops, read directly from Arc.</p>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Activity</h1>
+          <p className="mt-1 text-sm text-muted">Your recent payments and airdrops</p>
         </div>
         {isConnected && (
           <div className="flex gap-2">
@@ -86,6 +88,7 @@ function PaymentSection({
   subtitle?: string;
 }) {
   const { payments, isLoading, error, progress, refetch } = useSenderPayments(version, sender);
+  const network = useNetwork();
   const now = useNow();
   const locked = payments
     .filter((p) => p.status === ClaimStatus.FUNDED)
@@ -115,7 +118,7 @@ function PaymentSection({
         </Card>
       ) : error && payments.length === 0 ? (
         <Notice tone="error">
-          Couldn&apos;t load payments from {NETWORK_NAME}.{" "}
+          Couldn&apos;t load payments from {network.displayName}.{" "}
           <button className="underline" onClick={() => refetch()}>
             Try again
           </button>
@@ -158,6 +161,7 @@ function PaymentRow({
   sender: Address;
   now: number;
 }) {
+  const network = useNetwork();
   const cancelTx = useCancelClaim();
   const refundTx = useRefundExpired();
   const active = [cancelTx, refundTx].find((t) => t.phase !== "idle");
@@ -179,7 +183,7 @@ function PaymentRow({
         </div>
 
         <a
-          href={explorerAddressUrl(payment.recipient)}
+          href={explorerAddressUrl(network, payment.recipient)}
           target="_blank"
           rel="noreferrer"
           title={payment.recipient}
@@ -239,12 +243,12 @@ function PaymentRow({
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
         {status === ClaimStatus.FUNDED && !expired && (
-          <CopyButton value={paymentUrl(ref)} label="Copy claim link" variant="ghost" className="-ml-3 h-7! text-xs" />
+          <CopyButton value={paymentUrl(network, ref)} label="Copy claim link" variant="ghost" className="-ml-3 h-7! text-xs" />
         )}
         {isTerminalStatus(status) && (
           <SettlementLine paymentRef={ref} status={status!} fromBlockHint={payment.blockNumber} />
         )}
-        <a href={explorerTxUrl(payment.txHash)} target="_blank" rel="noreferrer" className="hover:text-fg">
+        <a href={explorerTxUrl(network, payment.txHash)} target="_blank" rel="noreferrer" className="hover:text-fg">
           Creation tx ↗
         </a>
       </div>

@@ -14,23 +14,33 @@ import {
 } from "viem";
 import { useConfig, useReadContract, useReadContracts } from "wagmi";
 import { getPublicClient, readContract, simulateContract, writeContract } from "wagmi/actions";
-import { arcChain } from "@/config/arc";
-import { AllocationStatus, BatchStatus } from "@/contracts/ArcClaimBatch";
+import type { ArcNetwork } from "@/config/arc";
+import { AllocationStatus, BatchStatus, arcClaimBatchAbi } from "@/contracts/ArcClaimBatch";
+import { useNetwork } from "@/components/NetworkProvider";
 import { FriendlyError } from "@/lib/errors";
 import { formatUsdc } from "@/lib/format";
 import { blockRanges, findInRanges } from "@/lib/logs";
 import { loadCache, saveCache, scanLogsIncremental } from "@/lib/logScan";
-import { BATCH, isBatchEnabled, isBatchSettled, type BatchData } from "@/lib/batches";
+import { batchContract, isBatchSettled, type BatchContract, type BatchData } from "@/lib/batches";
 import { nowSeconds } from "@/lib/tx";
 import { LIVE_POLL_MS } from "./usePayment";
 import { useTxAction } from "./useTxAction";
 
-const chainId = arcChain.id;
-const BATCH_CREATED = getAbiItem({ abi: BATCH.abi, name: "BatchCreated" });
-const CONTRACT_KEY = () => `${chainId}:${BATCH.address?.toLowerCase()}`;
+const BATCH_CREATED = getAbiItem({ abi: arcClaimBatchAbi, name: "BatchCreated" });
+
+/** The selected network's ArcClaimBatch contract, its chain id and a cache-key prefix. */
+function useBatchNetwork() {
+  const network = useNetwork();
+  const { BATCH, isBatchEnabled } = batchContract(network);
+  return { network, BATCH, isBatchEnabled, chainId: network.chainId, contractKey: contractKey(network) };
+}
+
+const contractKey = (network: ArcNetwork) =>
+  `${network.chainId}:${batchContract(network).BATCH.address?.toLowerCase()}`;
 
 /** Live on-chain batch totals. Polls until the batch is closed or fully claimed. */
 export function useBatch(batchId: Hex | undefined) {
+  const { BATCH, isBatchEnabled, chainId } = useBatchNetwork();
   return useReadContract({
     ...BATCH,
     functionName: "getBatch",
@@ -51,14 +61,15 @@ export type BatchClosure = { event: "BatchRefunded" | "BatchCancelled"; txHash: 
  */
 export function useBatchClosure(batchId: Hex | undefined, status: number | undefined, fromBlock: bigint | undefined) {
   const config = useConfig();
+  const { BATCH, isBatchEnabled, chainId, contractKey } = useBatchNetwork();
   const closed = status === BatchStatus.REFUNDED || status === BatchStatus.CANCELLED;
   return useQuery({
-    queryKey: ["arcclaim-batch-closure", batchId, status],
+    queryKey: ["arcclaim-batch-closure", chainId, batchId, status],
     enabled: !!batchId && closed && fromBlock !== undefined && isBatchEnabled,
     staleTime: Infinity,
     retry: 2,
     queryFn: async (): Promise<BatchClosure | null> => {
-      const key = `arcclaim:batch-closure:v1:${CONTRACT_KEY()}:${batchId}`;
+      const key = `arcclaim:batch-closure:v1:${contractKey}:${batchId}`;
       const cached = loadCache<BatchClosure>(key);
       if (cached) return cached;
       const client = getPublicClient(config, { chainId });
@@ -81,6 +92,7 @@ export function useBatchClosure(batchId: Hex | undefined, status: number | undef
 
 /** The connected wallet's own allocation in a batch (amount 0 + NONE if it is not a recipient). */
 export function useMyAllocation(batchId: Hex | undefined, account: Address | undefined, settled: boolean) {
+  const { BATCH, isBatchEnabled, chainId } = useBatchNetwork();
   const q = useReadContract({
     ...BATCH,
     functionName: "getAllocation",
@@ -116,8 +128,14 @@ export type BatchActivity = {
   closed?: ActivityItem;
 };
 
-async function findCreationBlock(client: PublicClient, batchId: Hex, latest: bigint): Promise<bigint | undefined> {
-  const key = `arcclaim:batch-created:v1:${CONTRACT_KEY()}:${batchId}`;
+async function findCreationBlock(
+  client: PublicClient,
+  BATCH: BatchContract,
+  keyPrefix: string,
+  batchId: Hex,
+  latest: bigint,
+): Promise<bigint | undefined> {
+  const key = `arcclaim:batch-created:v1:${keyPrefix}:${batchId}`;
   const cached = loadCache<bigint>(key);
   if (cached !== undefined) return cached;
   const [log] = await findInRanges(blockRanges(BATCH.deployBlock, latest, "backward"), (fromBlock, toBlock) =>
@@ -129,7 +147,7 @@ async function findCreationBlock(client: PublicClient, batchId: Hex, latest: big
 }
 
 /** Every event for one batch in a block range (the batch id is topic 1 of all batch events). */
-async function fetchBatchLogs(client: PublicClient, batchId: Hex, fromBlock: bigint, toBlock: bigint) {
+async function fetchBatchLogs(client: PublicClient, BATCH: BatchContract, batchId: Hex, fromBlock: bigint, toBlock: bigint) {
   const raw = await client.request({
     method: "eth_getLogs",
     params: [
@@ -169,21 +187,22 @@ async function fetchBatchLogs(client: PublicClient, batchId: Hex, fromBlock: big
  */
 export function useBatchActivity(batchId: Hex | undefined, settled: boolean, fromBlockHint?: bigint) {
   const config = useConfig();
+  const { BATCH, isBatchEnabled, chainId, contractKey } = useBatchNetwork();
   const query = useQuery({
-    queryKey: ["arcclaim-batch-activity", batchId],
+    queryKey: ["arcclaim-batch-activity", chainId, batchId],
     enabled: !!batchId && isBatchEnabled,
     refetchInterval: settled ? false : 10_000,
     queryFn: async (): Promise<ActivityItem[]> => {
       const client = getPublicClient(config, { chainId }) as PublicClient | undefined;
       if (!client || !batchId) return [];
       const latest = await client.getBlockNumber();
-      const start = fromBlockHint ?? (await findCreationBlock(client, batchId, latest));
+      const start = fromBlockHint ?? (await findCreationBlock(client, BATCH, contractKey, batchId, latest));
       if (start === undefined) return [];
       return scanLogsIncremental({
-        cacheKey: `arcclaim:batch-activity:v1:${CONTRACT_KEY()}:${batchId}`,
+        cacheKey: `arcclaim:batch-activity:v1:${contractKey}:${batchId}`,
         startBlock: start,
         latest,
-        fetchRange: (f, t) => fetchBatchLogs(client, batchId, f, t),
+        fetchRange: (f, t) => fetchBatchLogs(client, BATCH, batchId, f, t),
       });
     },
   });
@@ -218,6 +237,7 @@ const ALLOCATION_CHUNK = 400;
 
 /** Live allocation status for each recipient (batched getAllocations calls). */
 export function useAllocations(batchId: Hex | undefined, recipients: Address[], settled: boolean) {
+  const { BATCH, chainId } = useBatchNetwork();
   const chunks = useMemo(() => {
     const out: Address[][] = [];
     for (let i = 0; i < recipients.length; i += ALLOCATION_CHUNK) out.push(recipients.slice(i, i + ALLOCATION_CHUNK));
@@ -252,10 +272,11 @@ export type SentBatch = { batchId: Hex; expiry: bigint; txHash: Hash; blockNumbe
 
 export function useSenderBatches(sender?: Address) {
   const config = useConfig();
+  const { BATCH, isBatchEnabled, chainId, contractKey } = useBatchNetwork();
   const [progress, setProgress] = useState<{ done: number; total: number }>();
 
   const events = useQuery({
-    queryKey: ["arcclaim-sent-batches", sender?.toLowerCase()],
+    queryKey: ["arcclaim-sent-batches", chainId, sender?.toLowerCase()],
     enabled: !!sender && isBatchEnabled,
     refetchInterval: 30_000,
     queryFn: async (): Promise<SentBatch[]> => {
@@ -263,7 +284,7 @@ export function useSenderBatches(sender?: Address) {
       if (!client || !sender) return [];
       const latest = await client.getBlockNumber();
       const found = await scanLogsIncremental<SentBatch>({
-        cacheKey: `arcclaim:sent-batches:v1:${CONTRACT_KEY()}:${sender.toLowerCase()}`,
+        cacheKey: `arcclaim:sent-batches:v1:${contractKey}:${sender.toLowerCase()}`,
         startBlock: BATCH.deployBlock,
         latest,
         onProgress: setProgress,
@@ -324,7 +345,9 @@ function useBatchAction(action: BatchAction) {
   const { execute } = tx;
   const run = useCallback(
     (batchId: Hex) =>
-      execute(async ({ config, account }) => {
+      execute(async ({ config, account, network }) => {
+        const { BATCH } = batchContract(network);
+        const chainId = network.chainId;
         const b = (await readContract(config, {
           ...BATCH,
           functionName: "getBatch",

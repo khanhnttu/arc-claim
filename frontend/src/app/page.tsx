@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { NETWORK_NAME } from "@/config/arc";
 import { CreatePaymentForm, type PaymentPrefill } from "@/components/CreatePaymentForm";
+import { NetworkName } from "@/components/NetworkSwitcher";
 
 const STEPS = [
   { title: "Send", body: "Lock USDC for one recipient, or distribute it to many in a single airdrop." },
@@ -25,7 +25,7 @@ export default async function HomePage({ searchParams }: PageProps<"/">) {
       <section className="lg:pt-6">
         <p className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium text-muted">
           <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
-          ArcClaim · Live on {NETWORK_NAME}
+          ArcClaim · Live on <NetworkName />
         </p>
         <h1 className="mt-5 text-4xl font-semibold tracking-tight sm:text-5xl">Programmable USDC Payments on Arc</h1>
         <p className="mt-4 max-w-lg text-lg leading-relaxed text-muted">

@@ -5,9 +5,9 @@ import { useCallback, useRef, useState } from "react";
 import { parseEventLogs, type Address, type Hash, type Hex } from "viem";
 import { useConfig } from "wagmi";
 import { simulateContract, writeContract } from "wagmi/actions";
-import { arcChain } from "@/config/arc";
+import { useNetwork } from "@/components/NetworkProvider";
 import { MAX_RECIPIENTS_PER_CALL } from "@/contracts/ArcClaimBatch";
-import { BATCH } from "@/lib/batches";
+import { batchContract } from "@/lib/batches";
 import { FriendlyError, toFriendlyMessage } from "@/lib/errors";
 import { ensureUsdcAllowance, nowSeconds, refreshChainReads, requireArcAccount, waitForSuccess } from "@/lib/tx";
 
@@ -42,6 +42,7 @@ export function chunkRows<T>(rows: T[], size = MAX_RECIPIENTS_PER_CALL): T[][] {
  */
 export function useCreateBatch() {
   const config = useConfig();
+  const network = useNetwork();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<BatchStep>("idle");
   const [needsApproval, setNeedsApproval] = useState(false);
@@ -66,6 +67,7 @@ export function useCreateBatch() {
   const create = useCallback(
     async (rows: BatchRow[], expiry: bigint) => {
       setError(undefined);
+      const { BATCH } = batchContract(network);
       const chunks = chunkRows(rows);
       // Resume only if the same airdrop was partially created in this session.
       const prev = progressRef.current;
@@ -79,11 +81,11 @@ export function useCreateBatch() {
           throw new FriendlyError("Expiration must be in the future.");
 
         setStep("checking");
-        const sender = await requireArcAccount(config);
-        const chainId = arcChain.id;
+        const sender = await requireArcAccount(config, network);
+        const chainId = network.chainId;
         const remaining = chunks.slice(p.done).flat().reduce((s, r) => s + r.amount, 0n);
 
-        await ensureUsdcAllowance(config, sender, BATCH.address, remaining, (s) => {
+        await ensureUsdcAllowance(config, network, sender, BATCH.address, remaining, (s) => {
           setNeedsApproval(true);
           setStep(s);
         });
@@ -113,7 +115,7 @@ export function useCreateBatch() {
             hash = await writeContract(config, request);
           }
           setStep("tx-pending");
-          const receipt = await waitForSuccess(config, hash);
+          const receipt = await waitForSuccess(config, network, hash);
 
           let batchId = p.batchId;
           if (i === 0) {
@@ -144,13 +146,13 @@ export function useCreateBatch() {
         });
         setStep("success");
       } catch (e) {
-        setError(toFriendlyMessage(e));
+        setError(toFriendlyMessage(e, network));
         setStep("error");
       } finally {
         void refreshChainReads(queryClient);
       }
     },
-    [config, queryClient],
+    [config, network, queryClient],
   );
 
   const isBusy = step !== "idle" && step !== "success" && step !== "error";

@@ -1,13 +1,4 @@
-import type { Address } from "viem";
-
-/**
- * ArcClaimV2 (Phase 2). Not deployed yet: set NEXT_PUBLIC_ARC_CLAIM_V2_ADDRESS (and NEXT_PUBLIC_ARC_CLAIM_V2_DEPLOY_BLOCK)
- * once it is. Until then the UI keeps using the Phase 1 contract / shows a "not deployed" notice.
- */
-export const ARC_CLAIM_V2_ADDRESS = (process.env.NEXT_PUBLIC_ARC_CLAIM_V2_ADDRESS || undefined) as Address | undefined;
-
-/** Block the contract was deployed in; event scans start here. */
-export const ARC_CLAIM_V2_DEPLOY_BLOCK = BigInt(process.env.NEXT_PUBLIC_ARC_CLAIM_V2_DEPLOY_BLOCK || "0");
+// Deployment addresses per network live in src/config/arc.ts.
 
 /** ABI generated from contracts/out/ArcClaimV2.sol/ArcClaimV2.json. */
 export const arcClaimV2Abi = [

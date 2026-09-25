@@ -6,6 +6,7 @@ import { ClaimStatus } from "@/contracts/ArcClaim";
 import { useSettlement } from "@/hooks/useSettlement";
 import { formatDateTime, formatExpiry, shortAddress } from "@/lib/format";
 import type { PaymentRef } from "@/lib/payments";
+import { useNetwork } from "./NetworkProvider";
 import { DetailRow, Skeleton } from "./ui";
 
 const LABELS: Record<number, { who: string; when: string }> = {
@@ -28,6 +29,7 @@ export function SettlementRows({
   fromBlockHint?: bigint;
 }) {
   const labels = LABELS[status];
+  const network = useNetwork();
   const { data, isLoading, isError } = useSettlement(paymentRef, status, fromBlockHint);
   if (!labels) return null;
 
@@ -53,7 +55,7 @@ export function SettlementRows({
       </DetailRow>
       <DetailRow label={labels.when}>{data.timestamp ? formatDateTime(data.timestamp) : "—"}</DetailRow>
       <DetailRow label="Transaction">
-        <a href={explorerTxUrl(data.txHash)} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+        <a href={explorerTxUrl(network, data.txHash)} target="_blank" rel="noreferrer" className="text-accent hover:underline">
           View Transaction ↗
         </a>
       </DetailRow>
@@ -61,7 +63,7 @@ export function SettlementRows({
   );
 }
 
-/** One-line settlement summary for dense lists (dashboard rows). */
+/** One-line settlement summary for dense lists (Activity rows). */
 export function SettlementLine({
   paymentRef,
   status,
@@ -72,6 +74,7 @@ export function SettlementLine({
   fromBlockHint?: bigint;
 }) {
   const labels = LABELS[status];
+  const network = useNetwork();
   const { data, isLoading } = useSettlement(paymentRef, status, fromBlockHint);
   if (!labels) return null;
   if (isLoading) return <Skeleton className="h-4 w-56" />;
@@ -94,7 +97,7 @@ export function SettlementLine({
           · {labels.when.replace(" at", "")} {formatDateTime(data.timestamp)}
         </span>
       )}
-      <a href={explorerTxUrl(data.txHash)} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+      <a href={explorerTxUrl(network, data.txHash)} target="_blank" rel="noreferrer" className="text-accent hover:underline">
         View Transaction ↗
       </a>
     </span>
@@ -113,9 +116,10 @@ export function ExpiryValue({ expiry, now }: { expiry: bigint; now: number }) {
 }
 
 export function AddressLink({ address, className }: { address: Address; className?: string }) {
+  const network = useNetwork();
   return (
     <a
-      href={explorerAddressUrl(address)}
+      href={explorerAddressUrl(network, address)}
       target="_blank"
       rel="noreferrer"
       title={address}

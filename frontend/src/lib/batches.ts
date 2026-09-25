@@ -1,21 +1,18 @@
 import { isHex, type Address, type Hex } from "viem";
-import { appBaseUrl } from "@/config/arc";
-import {
-  ARC_CLAIM_BATCH_ADDRESS,
-  ARC_CLAIM_BATCH_DEPLOY_BLOCK,
-  BatchStatus,
-  arcClaimBatchAbi,
-} from "@/contracts/ArcClaimBatch";
+import { shareUrl, type ArcNetwork } from "@/config/arc";
+import { BatchStatus, arcClaimBatchAbi } from "@/contracts/ArcClaimBatch";
 import { formatDate, formatDurationShort, shortAddress } from "./format";
 
-/** True once ArcClaimBatch has been deployed and configured. */
-export const isBatchEnabled = !!ARC_CLAIM_BATCH_ADDRESS;
+/** The ArcClaimBatch contract on `network` (address from src/config/arc.ts). */
+export function batchContract(network: ArcNetwork) {
+  const batch = network.contracts.batch;
+  return {
+    isBatchEnabled: !!batch,
+    BATCH: { address: batch?.address as Address, abi: arcClaimBatchAbi, deployBlock: batch?.deployBlock ?? 0n },
+  } as const;
+}
 
-export const BATCH = {
-  address: ARC_CLAIM_BATCH_ADDRESS as Address,
-  abi: arcClaimBatchAbi,
-  deployBlock: ARC_CLAIM_BATCH_DEPLOY_BLOCK,
-} as const;
+export type BatchContract = ReturnType<typeof batchContract>["BATCH"];
 
 export type BatchData = {
   sender: Address;
@@ -70,7 +67,8 @@ export function parseBatchId(raw: string | undefined): Hex | undefined {
 }
 
 export const batchPath = (id: Hex) => `/airdrop/${id}`;
-export const batchUrl = (id: Hex) => `${appBaseUrl()}${batchPath(id)}`;
+/** Shareable airdrop link; tagged with the network so it opens on the right chain. */
+export const batchUrl = (network: ArcNetwork, id: Hex) => shareUrl(network, batchPath(id));
 export const batchLabel = (id: Hex) => shortAddress(id, 4);
 
 /** Claimed share of the total, 0–100 with one decimal. */

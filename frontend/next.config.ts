@@ -17,6 +17,10 @@ const nextConfig: NextConfig = {
   turbopack: {
     resolveAlias: x402Aliases,
   },
+  // The old Dashboard page is now Activity; keep existing bookmarks working.
+  async redirects() {
+    return [{ source: "/dashboard", destination: "/activity", permanent: true }];
+  },
 };
 
 export default nextConfig;

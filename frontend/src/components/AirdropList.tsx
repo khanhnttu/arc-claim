@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useAccount } from "wagmi";
-import { NETWORK_NAME } from "@/config/arc";
 import { BatchStatus } from "@/contracts/ArcClaimBatch";
 import { useBatchClosure, useSenderBatches, type SentBatch } from "@/hooks/useBatches";
 import { useNow } from "@/hooks/useNow";
@@ -12,16 +11,19 @@ import {
   batchPhase,
   batchTimingText,
   claimedPercent,
-  isBatchEnabled,
+  batchContract,
   type BatchData,
 } from "@/lib/batches";
 import { formatUsdc } from "@/lib/format";
+import { useNetwork } from "./NetworkProvider";
 import { LabelBadge } from "./StatusBadge";
 import { Card, Notice, Skeleton, Spinner, cn } from "./ui";
 
 /** The connected sender's airdrops with live progress. */
 export function AirdropList({ title = "Your airdrops" }: { title?: string }) {
   const { address } = useAccount();
+  const network = useNetwork();
+  const { isBatchEnabled } = batchContract(network);
   const { batches, isLoading, error, progress } = useSenderBatches(address);
 
   if (!isBatchEnabled || !address) return null;
@@ -40,7 +42,7 @@ export function AirdropList({ title = "Your airdrops" }: { title?: string }) {
           <Skeleton className="mt-4 h-16 w-full" />
         </Card>
       ) : error ? (
-        <Notice tone="error">Couldn&apos;t load your airdrops from {NETWORK_NAME}.</Notice>
+        <Notice tone="error">Couldn&apos;t load your airdrops from {network.displayName}.</Notice>
       ) : batches.length === 0 ? (
         <Card className="p-6 text-center text-sm text-muted">No airdrops yet. Create one from the Airdrop page.</Card>
       ) : (

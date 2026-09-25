@@ -8,11 +8,12 @@ import { MAX_RECIPIENTS_PER_CALL } from "@/contracts/ArcClaimBatch";
 import { useCreateBatch, chunkRows } from "@/hooks/useCreateBatch";
 import { useNow } from "@/hooks/useNow";
 import { useUsdcBalance } from "@/hooks/useUsdcBalance";
-import { batchPath, batchUrl, isBatchEnabled } from "@/lib/batches";
+import { batchContract, batchPath, batchUrl } from "@/lib/batches";
 import { AIRDROP_CSV_TEMPLATE, ISSUE_LABEL, parseAirdropCsv, type AirdropRow } from "@/lib/csv";
 import { formatUsdc, shortAddress } from "@/lib/format";
 import { CopyButton } from "./CopyButton";
 import { StepProgress } from "./CreatePaymentForm";
+import { useNetwork } from "./NetworkProvider";
 import { EXPIRY_PRESETS, ExpiryPicker, expiryError, resolveExpiry, type ExpiryChoice } from "./ExpiryPicker";
 import { WalletButton } from "./WalletButton";
 import { Button, Card, Notice, buttonClass, cn } from "./ui";
@@ -22,6 +23,8 @@ const PREVIEW_PAGE = 50;
 /** CSV upload → parse → validate → preview → confirm → approve → create batch (+ add chunks). */
 export function AirdropCreate() {
   const { address, isConnected } = useAccount();
+  const network = useNetwork();
+  const { isBatchEnabled } = batchContract(network);
   const balance = useUsdcBalance(address);
   const tx = useCreateBatch();
   const now = useNow();
@@ -98,13 +101,13 @@ export function AirdropCreate() {
           >
             Open airdrop
           </Link>
-          <CopyButton value={batchUrl(r.batchId)} label="Copy Airdrop Link" className="h-12 flex-1" />
+          <CopyButton value={batchUrl(network, r.batchId)} label="Copy Airdrop Link" className="h-12 flex-1" />
         </div>
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border pt-4 text-xs text-muted">
           <span className="flex flex-wrap gap-x-3">
             {r.txHashes.map((h, i) => (
-              <a key={h} href={explorerTxUrl(h)} target="_blank" rel="noreferrer" className="hover:text-fg">
+              <a key={h} href={explorerTxUrl(network, h)} target="_blank" rel="noreferrer" className="hover:text-fg">
                 {r.txHashes.length > 1 ? `Transaction ${i + 1}` : "View transaction"} ↗
               </a>
             ))}
@@ -365,7 +368,7 @@ export function AirdropCreate() {
           <div className="mt-5">
             {!isBatchEnabled ? (
               <Notice tone="warning">
-                ArcClaimBatch is not deployed yet, so airdrops can be validated but not created.
+                ArcClaimBatch is not deployed on {network.displayName}, so airdrops can be validated but not created.
               </Notice>
             ) : !isConnected ? (
               <WalletButton block label="Connect Wallet to create the airdrop" />

@@ -1,8 +1,9 @@
 import { erc20Abi } from "viem";
-import { USDC_ADDRESS } from "@/config/arc";
+import type { ArcNetwork } from "@/config/arc";
 
-/** USDC ERC-20 (balanceOf / allowance / approve). */
-export const usdcContract = {
-  address: USDC_ADDRESS,
-  abi: erc20Abi,
-} as const;
+/** USDC ERC-20 (balanceOf / allowance / approve) on the given network. */
+export const usdcContract = (network: ArcNetwork) =>
+  ({
+    address: network.usdcAddress,
+    abi: erc20Abi,
+  }) as const;

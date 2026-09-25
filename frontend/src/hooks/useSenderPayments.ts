@@ -5,9 +5,11 @@ import { useState } from "react";
 import { getAbiItem, type Address, type Hash } from "viem";
 import { useConfig, useReadContracts } from "wagmi";
 import { getPublicClient } from "wagmi/actions";
-import { arcChain } from "@/config/arc";
+import { useNetwork } from "@/components/NetworkProvider";
+import { arcClaimAbi } from "@/contracts/ArcClaim";
+import { arcClaimV2Abi } from "@/contracts/ArcClaimV2";
 import { scanLogsIncremental } from "@/lib/logScan";
-import { V1, V2, isV1Enabled, isV2Enabled, refKey, type PaymentRef } from "@/lib/payments";
+import { paymentContracts, refKey, type PaymentRef } from "@/lib/payments";
 import { LIVE_POLL_MS, isTerminalStatus } from "./usePayment";
 
 export type SentPayment = {
@@ -19,8 +21,8 @@ export type SentPayment = {
   blockNumber: bigint;
 };
 
-const CLAIM_CREATED = getAbiItem({ abi: V1.abi, name: "ClaimCreated" });
-const PAYMENT_CREATED = getAbiItem({ abi: V2.abi, name: "PaymentCreated" });
+const CLAIM_CREATED = getAbiItem({ abi: arcClaimAbi, name: "ClaimCreated" });
+const PAYMENT_CREATED = getAbiItem({ abi: arcClaimV2Abi, name: "PaymentCreated" });
 
 /**
  * Discover payments created by `sender` on one contract version from its creation events (no backend),
@@ -28,21 +30,24 @@ const PAYMENT_CREATED = getAbiItem({ abi: V2.abi, name: "PaymentCreated" });
  */
 export function useSenderPayments(version: 1 | 2, sender?: Address) {
   const config = useConfig();
+  const network = useNetwork();
+  const chainId = network.chainId;
+  const { V1, V2, isV1Enabled, isV2Enabled } = paymentContracts(network);
   const [progress, setProgress] = useState<{ done: number; total: number }>();
   const contract = version === 1 ? V1 : V2;
   const enabled = !!sender && (version === 1 ? isV1Enabled : isV2Enabled);
 
   const events = useQuery({
-    queryKey: ["arcclaim-sent", version, sender?.toLowerCase()],
+    queryKey: ["arcclaim-sent", chainId, version, sender?.toLowerCase()],
     enabled,
     refetchInterval: 30_000,
     queryFn: async (): Promise<SentPayment[]> => {
-      const client = getPublicClient(config, { chainId: arcChain.id });
+      const client = getPublicClient(config, { chainId });
       if (!client || !sender) return [];
       const latest = await client.getBlockNumber();
 
       const found = await scanLogsIncremental<SentPayment>({
-        cacheKey: `arcclaim:sent:v3:${arcChain.id}:${contract.address.toLowerCase()}:${sender.toLowerCase()}`,
+        cacheKey: `arcclaim:sent:v3:${chainId}:${contract.address.toLowerCase()}:${sender.toLowerCase()}`,
         startBlock: contract.deployBlock,
         latest,
         onProgress: setProgress,
@@ -91,8 +96,8 @@ export function useSenderPayments(version: 1 | 2, sender?: Address) {
   const statuses = useReadContracts({
     contracts: list.map((p) =>
       p.ref.version === 1
-        ? ({ address: V1.address, abi: V1.abi, functionName: "getClaim", args: [p.ref.id], chainId: arcChain.id } as const)
-        : ({ address: V2.address, abi: V2.abi, functionName: "getPayment", args: [p.ref.id], chainId: arcChain.id } as const),
+        ? ({ address: V1.address, abi: V1.abi, functionName: "getClaim", args: [p.ref.id], chainId } as const)
+        : ({ address: V2.address, abi: V2.abi, functionName: "getPayment", args: [p.ref.id], chainId } as const),
     ),
     query: {
       enabled: list.length > 0,

@@ -23,7 +23,7 @@ import {
   batchTimingText,
   batchUrl,
   claimedPercent,
-  isBatchEnabled,
+  batchContract,
   isBatchSettled,
   type BatchData,
   type BatchPhase,
@@ -31,7 +31,9 @@ import {
 import { formatDate, formatDateTime, formatUsdc, sameAddress } from "@/lib/format";
 import { ProgressBar } from "./AirdropList";
 import { CopyButton } from "./CopyButton";
+import { useNetwork } from "./NetworkProvider";
 import { NotEligible } from "./NotEligible";
+import { OtherNetworkHint } from "./NetworkSwitcher";
 import { AddressLink, ExpiryValue } from "./SettlementDetails";
 import { LabelBadge } from "./StatusBadge";
 import { TxStatus } from "./TxStatus";
@@ -50,6 +52,8 @@ export function AirdropView({
   justCreated?: boolean;
 }) {
   const now = useNow();
+  const network = useNetwork();
+  const { isBatchEnabled } = batchContract(network);
   const { data, isLoading, isError, refetch } = useBatch(batchId);
   const batch = data as BatchData | undefined;
   const exists = !!batch && batch.status !== BatchStatus.NONE;
@@ -59,8 +63,9 @@ export function AirdropView({
       <Card className="mx-auto max-w-lg p-8 text-center">
         <h1 className="text-xl font-semibold">Airdrop not found</h1>
         <p className="mt-2 text-sm break-all text-muted">
-          There is no ArcClaim airdrop with ID <span className="font-mono">{rawId}</span>.
+          There is no ArcClaim airdrop with ID <span className="font-mono">{rawId}</span> on {network.displayName}.
         </p>
+        <OtherNetworkHint />
         <Link href="/airdrop" className={buttonClass({ variant: "secondary", className: "mt-6" })}>
           Go to airdrops
         </Link>
@@ -209,6 +214,7 @@ function AirdropDetails({
   mine: MyAllocation;
   justCreated?: boolean;
 }) {
+  const network = useNetwork();
   const [showCreated, setShowCreated] = useState(!!justCreated);
   const settled = isBatchSettled(batch);
   const phase = batchPhase(batch, now);
@@ -242,7 +248,7 @@ function AirdropDetails({
         </div>
         <div className="flex items-center gap-2">
           <LabelBadge label={phase} />
-          <CopyButton value={batchUrl(batchId)} label="Copy airdrop link" />
+          <CopyButton value={batchUrl(network, batchId)} label="Copy airdrop link" />
         </div>
       </div>
 
@@ -275,7 +281,7 @@ function AirdropDetails({
             {activity.closed && (
               <DetailRow label={activity.closed.event === "BatchRefunded" ? "Refund tx" : "Cancel tx"}>
                 <a
-                  href={explorerTxUrl(activity.closed.txHash)}
+                  href={explorerTxUrl(network, activity.closed.txHash)}
                   target="_blank"
                   rel="noreferrer"
                   className="text-accent hover:underline"
@@ -478,6 +484,7 @@ function RecipientsTable({
   loading: boolean;
   expectedCount: number;
 }) {
+  const network = useNetwork();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"ALL" | "FUNDED" | "CLAIMED" | "REFUNDED" | "CANCELLED">("ALL");
   const [page, setPage] = useState(0);
@@ -566,7 +573,7 @@ function RecipientsTable({
                     </td>
                     <td className="px-5 py-2.5">
                       {claim ? (
-                        <a href={explorerTxUrl(claim.txHash)} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                        <a href={explorerTxUrl(network, claim.txHash)} target="_blank" rel="noreferrer" className="text-accent hover:underline">
                           View ↗
                         </a>
                       ) : (

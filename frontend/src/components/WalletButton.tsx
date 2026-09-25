@@ -2,11 +2,15 @@
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import type { Address } from "viem";
+import { useSwitchChain } from "wagmi";
 import { useUsdcBalance } from "@/hooks/useUsdcBalance";
 import { formatUsdc } from "@/lib/format";
+import { useNetwork } from "./NetworkProvider";
 import { Button } from "./ui";
 
 export function WalletButton({ label = "Connect Wallet", block }: { label?: string; block?: boolean }) {
+  const network = useNetwork();
+  const { switchChain, isPending } = useSwitchChain();
   return (
     <ConnectButton.Custom>
       {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
@@ -28,6 +32,20 @@ export function WalletButton({ label = "Connect Wallet", block }: { label?: stri
           return (
             <Button size={block ? "lg" : "sm"} variant="danger" className={width} onClick={openChainModal}>
               Wrong network — switch to Arc
+            </Button>
+          );
+        }
+        // On the other Arc network than the one selected in the app.
+        if (chain.id !== network.chainId) {
+          return (
+            <Button
+              size={block ? "lg" : "sm"}
+              variant="danger"
+              className={width}
+              loading={isPending}
+              onClick={() => switchChain({ chainId: network.chainId })}
+            >
+              Switch to {network.name}
             </Button>
           );
         }

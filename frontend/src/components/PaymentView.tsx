@@ -3,13 +3,14 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useAccount } from "wagmi";
-import { NETWORK_NAME } from "@/config/arc";
 import { ClaimStatus } from "@/contracts/ArcClaim";
 import { usePayment } from "@/hooks/usePayment";
 import { useCancelClaim, useClaimPayment, useRefundExpired } from "@/hooks/usePaymentActions";
 import { formatUsdc, sameAddress } from "@/lib/format";
-import { isV2Enabled, paymentLabel, resendHref, type PaymentData, type PaymentRef } from "@/lib/payments";
+import { paymentContracts, paymentLabel, resendHref, type PaymentData, type PaymentRef } from "@/lib/payments";
+import { useNetwork } from "./NetworkProvider";
 import { NotEligible } from "./NotEligible";
+import { OtherNetworkHint } from "./NetworkSwitcher";
 import { AddressLink, ExpiryValue, SettlementRows } from "./SettlementDetails";
 import { StatusBadge } from "./StatusBadge";
 import { TxStatus } from "./TxStatus";
@@ -61,7 +62,9 @@ function headline(p: PaymentData, isExpired: boolean, viewer: "sender" | "recipi
 
 /** Claim page for a single payment (Phase 1 `/claim/[id]` or ArcClaimV2 `/pay/[id]`). */
 export function PaymentView({ paymentRef, rawId }: { paymentRef: PaymentRef | undefined; rawId: string }) {
-  const unavailable = paymentRef?.version === 2 && !isV2Enabled;
+  const network = useNetwork();
+  const { isV1Enabled, isV2Enabled } = paymentContracts(network);
+  const unavailable = (paymentRef?.version === 2 && !isV2Enabled) || (paymentRef?.version === 1 && !isV1Enabled);
   const { payment, notFound, isLoading, isError, isExpired, isTerminal, neverExpires, now, refetch } =
     usePayment(unavailable ? undefined : paymentRef);
   const { address, isConnected } = useAccount();
@@ -72,8 +75,10 @@ export function PaymentView({ paymentRef, rawId }: { paymentRef: PaymentRef | un
         <Card className="p-8 text-center">
           <h1 className="text-xl font-semibold">Payment not found</h1>
           <p className="mt-2 text-sm break-all text-muted">
-            There is no ArcClaim payment with ID <span className="font-mono">{rawId}</span>. Check the link you received.
+            There is no ArcClaim payment with ID <span className="font-mono">{rawId}</span> on {network.displayName}.
+            Check the link you received.
           </p>
+          <OtherNetworkHint />
           <Link href="/" className={buttonClass({ variant: "secondary", className: "mt-6" })}>
             Create a payment
           </Link>
@@ -102,7 +107,7 @@ export function PaymentView({ paymentRef, rawId }: { paymentRef: PaymentRef | un
     return (
       <Shell>
         <Notice tone="error">
-          Couldn&apos;t load this payment from {NETWORK_NAME}. Check your connection and{" "}
+          Couldn&apos;t load this payment from {network.displayName}. Check your connection and{" "}
           <button className="underline" onClick={() => refetch()}>
             try again
           </button>
