@@ -47,6 +47,13 @@ export const arcClaimAbi = [
   },
   {
     type: "function",
+    name: "nextClaimId",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "getClaim",
     inputs: [{ name: "claimId", type: "uint256", internalType: "uint256" }],
     outputs: [
