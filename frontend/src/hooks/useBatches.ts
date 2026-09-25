@@ -25,7 +25,7 @@ import { loadCache, saveCache, scanLogsIncremental } from "@/lib/logScan";
 import { batchContract, isBatchSettled, type BatchContract, type BatchData } from "@/lib/batches";
 import { nowSeconds } from "@/lib/tx";
 import { LIVE_POLL_MS } from "./usePayment";
-import { useSenderActivity } from "./useSenderActivity";
+import { useWalletActivity } from "./useWalletActivity";
 import { useTxAction } from "./useTxAction";
 
 const BATCH_CREATED = getAbiItem({ abi: arcClaimBatchAbi, name: "BatchCreated" });
@@ -283,14 +283,18 @@ export function useAllocations(batchId: Hex | undefined, recipients: Address[], 
 // Sender's batches
 // ---------------------------------------------------------------------------
 
-export type { SentBatch } from "./useSenderActivity";
+/** An airdrop the wallet created, with its live on-chain totals. */
+export type SentBatch = { batchId: Hex; nonce: bigint; data: BatchData };
 
 /** Airdrops `sender` created, with live on-chain totals (shared Activity query, read from the contract). */
 export function useSenderBatches(sender?: Address) {
   const { isBatchEnabled } = useBatchNetwork();
-  const activity = useSenderActivity(isBatchEnabled ? sender : undefined);
+  const activity = useWalletActivity(isBatchEnabled ? sender : undefined);
+  const batches: SentBatch[] = (activity.data ?? [])
+    .flatMap((it) => (it.type === "AIRDROP_CREATED" ? [{ batchId: it.batchId, nonce: it.nonce, data: it.batch }] : []))
+    .sort((x, y) => (x.nonce > y.nonce ? -1 : 1));
   return {
-    batches: activity.data?.batches ?? [],
+    batches,
     isLoading: !!sender && isBatchEnabled && activity.isLoading,
     error: activity.error,
     refetch: activity.refetch,
