@@ -38,7 +38,7 @@ import { AddressLink, ExpiryValue } from "./SettlementDetails";
 import { LabelBadge } from "./StatusBadge";
 import { TxStatus } from "./TxStatus";
 import { WalletButton } from "./WalletButton";
-import { Button, Card, DetailRow, Notice, Skeleton, buttonClass, cn } from "./ui";
+import { Button, Card, DetailRow, Notice, Pagination, Skeleton, buttonClass } from "./ui";
 
 const PAGE_SIZE = 50;
 
@@ -595,21 +595,14 @@ function RecipientsTable({
         </div>
       )}
 
-      {pages > 1 && (
-        <div className={cn("flex items-center justify-between border-t border-border px-5 py-3 text-xs text-muted")}>
-          <span>
-            Page {page + 1} of {pages} · {rows.length.toLocaleString()} rows
-          </span>
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" disabled={page === 0} onClick={() => setPage(page - 1)}>
-              Previous
-            </Button>
-            <Button size="sm" variant="ghost" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}>
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        pages={pages}
+        total={rows.length}
+        noun="rows"
+        onPage={setPage}
+        className="border-t border-border px-5 py-3"
+      />
     </Card>
   );
 }

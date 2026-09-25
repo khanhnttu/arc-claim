@@ -97,3 +97,47 @@ export function DetailRow({ label, children }: { label: string; children: ReactN
 export function Skeleton({ className }: { className?: string }) {
   return <div className={cn("animate-pulse rounded-lg bg-surface-2", className)} />;
 }
+
+/** Current page slice of `items`. `page` is clamped, so a list that shrinks never shows an empty page. */
+export function paginate<T>(items: T[], page: number, pageSize: number) {
+  const pages = Math.max(1, Math.ceil(items.length / pageSize));
+  const current = Math.min(page, pages - 1);
+  return { pages, current, visible: items.slice(current * pageSize, (current + 1) * pageSize) };
+}
+
+/** "Page 2 of 5 · 42 payments  [Previous] [Next]". Renders nothing for a single page. */
+export function Pagination({
+  page,
+  pages,
+  total,
+  noun,
+  onPage,
+  className,
+}: {
+  page: number;
+  pages: number;
+  total: number;
+  noun: string;
+  onPage: (page: number) => void;
+  className?: string;
+}) {
+  if (pages <= 1) return null;
+  return (
+    <nav
+      aria-label={`${noun} pages`}
+      className={cn("flex items-center justify-between gap-2 text-xs text-muted", className)}
+    >
+      <span>
+        Page {page + 1} of {pages} · {total.toLocaleString()} {noun}
+      </span>
+      <div className="flex gap-1">
+        <Button size="sm" variant="ghost" disabled={page === 0} onClick={() => onPage(page - 1)}>
+          Previous
+        </Button>
+        <Button size="sm" variant="ghost" disabled={page >= pages - 1} onClick={() => onPage(page + 1)}>
+          Next
+        </Button>
+      </div>
+    </nav>
+  );
+}

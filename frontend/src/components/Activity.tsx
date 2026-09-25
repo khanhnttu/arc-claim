@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import type { Address } from "viem";
 import { useAccount } from "wagmi";
 import { explorerAddressUrl, explorerTxUrl } from "@/config/arc";
 import { ClaimStatus } from "@/contracts/ArcClaim";
+import { useCreationMeta } from "@/hooks/useCreationMeta";
 import { useNow } from "@/hooks/useNow";
 import { isTerminalStatus } from "@/hooks/usePayment";
 import { useCancelClaim, useRefundExpired } from "@/hooks/usePaymentActions";
@@ -19,7 +21,9 @@ import { SettlementLine } from "./SettlementDetails";
 import { StatusBadge } from "./StatusBadge";
 import { TxStatus } from "./TxStatus";
 import { WalletButton } from "./WalletButton";
-import { Button, Card, Notice, Skeleton, Spinner, buttonClass } from "./ui";
+import { Button, Card, Notice, Pagination, Skeleton, Spinner, buttonClass, paginate } from "./ui";
+
+const PAGE_SIZE = 10;
 
 export function Activity() {
   const { address, isConnected } = useAccount();
@@ -87,9 +91,11 @@ function PaymentSection({
   title?: string;
   subtitle?: string;
 }) {
-  const { payments, isLoading, error, progress, refetch } = useSenderPayments(version, sender);
+  const { payments, isLoading, error, refetch } = useSenderPayments(version, sender);
   const network = useNetwork();
   const now = useNow();
+  const [page, setPage] = useState(0);
+  const { pages, current, visible } = paginate(payments, page, PAGE_SIZE);
   const locked = payments
     .filter((p) => p.status === ClaimStatus.FUNDED)
     .reduce((sum, p) => sum + p.amount, 0n);
@@ -107,9 +113,7 @@ function PaymentSection({
         <Card className="p-5">
           <div className="flex items-center gap-2 text-sm text-muted">
             <Spinner />
-            {progress
-              ? `Scanning blocks for your payments… ${Math.round((progress.done / progress.total) * 100)}%`
-              : "Loading your payments…"}
+            Loading your payments…
           </div>
           <div className="mt-4 space-y-3">
             <Skeleton className="h-14 w-full" />
@@ -141,10 +145,18 @@ function PaymentSection({
               <span className="text-right">Actions</span>
             </div>
             <ul className="divide-y divide-border">
-              {payments.map((p) => (
+              {visible.map((p) => (
                 <PaymentRow key={refKey(p.ref)} payment={p} sender={sender} now={now} />
               ))}
             </ul>
+            <Pagination
+              page={current}
+              pages={pages}
+              total={payments.length}
+              noun="payments"
+              onPage={setPage}
+              className="border-t border-border px-5 py-3"
+            />
           </Card>
         </>
       )}
@@ -157,7 +169,7 @@ function PaymentRow({
   sender,
   now,
 }: {
-  payment: SentPayment & { status?: number };
+  payment: SentPayment;
   sender: Address;
   now: number;
 }) {
@@ -167,6 +179,8 @@ function PaymentRow({
   const active = [cancelTx, refundTx].find((t) => t.phase !== "idle");
   const expired = isPaymentExpired(payment.expiry, now);
   const { ref, status } = payment;
+  // Only rendered (visible-page) rows resolve their creation tx; cached ones make no RPC calls.
+  const creation = useCreationMeta(ref.version === 1 ? "v1" : "v2", payment.nonce);
 
   return (
     <li className="px-5 py-4">
@@ -246,11 +260,22 @@ function PaymentRow({
           <CopyButton value={paymentUrl(network, ref)} label="Copy claim link" variant="ghost" className="-ml-3 h-7! text-xs" />
         )}
         {isTerminalStatus(status) && (
-          <SettlementLine paymentRef={ref} status={status!} fromBlockHint={payment.blockNumber} />
+          <SettlementLine paymentRef={ref} status={status} fromBlockHint={creation.data?.blockNumber} />
         )}
-        <a href={explorerTxUrl(network, payment.txHash)} target="_blank" rel="noreferrer" className="hover:text-fg">
-          Creation tx ↗
-        </a>
+        {creation.data ? (
+          <a href={explorerTxUrl(network, creation.data.txHash)} target="_blank" rel="noreferrer" className="hover:text-fg">
+            Creation tx ↗
+          </a>
+        ) : creation.isError ? (
+          <span>
+            Creation tx unavailable ·{" "}
+            <button type="button" className="underline hover:text-fg" onClick={() => creation.refetch()}>
+              Retry
+            </button>
+          </span>
+        ) : (
+          <span>Creation tx: Resolving…</span>
+        )}
       </div>
 
       {active && (

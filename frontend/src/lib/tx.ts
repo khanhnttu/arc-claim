@@ -34,12 +34,12 @@ export async function waitForSuccess(config: Config, network: ArcNetwork, hash: 
   return receipt;
 }
 
-/** Re-fetch every on-chain read (claims, balances, allowances) after a transaction. */
+/** Re-fetch every on-chain read (claims, balances, allowances, Activity lists) after a transaction. */
 export function refreshChainReads(queryClient: QueryClient) {
   return queryClient.invalidateQueries({
     predicate: (q) =>
       typeof q.queryKey[0] === "string" &&
-      ["readContract", "readContracts", "balance"].includes(q.queryKey[0]),
+      ["readContract", "readContracts", "balance", "arcclaim-sender-activity"].includes(q.queryKey[0]),
   });
 }
 

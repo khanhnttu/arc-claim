@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import {
   decodeEventLog,
   getAbiItem,
@@ -20,10 +20,12 @@ import { useNetwork } from "@/components/NetworkProvider";
 import { FriendlyError } from "@/lib/errors";
 import { formatUsdc } from "@/lib/format";
 import { blockRanges, findInRanges } from "@/lib/logs";
+import { firstBlockWhere, latestBlock, logsInBlock, readAtBlock } from "@/lib/historical";
 import { loadCache, saveCache, scanLogsIncremental } from "@/lib/logScan";
 import { batchContract, isBatchSettled, type BatchContract, type BatchData } from "@/lib/batches";
 import { nowSeconds } from "@/lib/tx";
 import { LIVE_POLL_MS } from "./usePayment";
+import { useSenderActivity } from "./useSenderActivity";
 import { useTxAction } from "./useTxAction";
 
 const BATCH_CREATED = getAbiItem({ abi: arcClaimBatchAbi, name: "BatchCreated" });
@@ -57,28 +59,41 @@ export type BatchClosure = { event: "BatchRefunded" | "BatchCancelled"; txHash: 
 
 /**
  * When and how a closed batch returned its unclaimed funds (from its BatchRefunded / BatchCancelled
- * event). Scans forward from the creation block; the result is final and cached.
+ * event). Finds the closing block by binary search over historical reads, then reads that one block's
+ * logs. The result is final and cached.
  */
-export function useBatchClosure(batchId: Hex | undefined, status: number | undefined, fromBlock: bigint | undefined) {
+export function useBatchClosure(batchId: Hex | undefined, status: number | undefined, fromBlock?: bigint) {
   const config = useConfig();
   const { BATCH, isBatchEnabled, chainId, contractKey } = useBatchNetwork();
   const closed = status === BatchStatus.REFUNDED || status === BatchStatus.CANCELLED;
   return useQuery({
     queryKey: ["arcclaim-batch-closure", chainId, batchId, status],
-    enabled: !!batchId && closed && fromBlock !== undefined && isBatchEnabled,
+    enabled: !!batchId && closed && isBatchEnabled,
     staleTime: Infinity,
-    retry: 2,
+    retry: 1,
+    refetchOnWindowFocus: false,
     queryFn: async (): Promise<BatchClosure | null> => {
       const key = `arcclaim:batch-closure:v1:${contractKey}:${batchId}`;
       const cached = loadCache<BatchClosure>(key);
       if (cached) return cached;
-      const client = getPublicClient(config, { chainId });
-      if (!client || !batchId || fromBlock === undefined) return null;
+      const client = getPublicClient(config, { chainId }) as PublicClient | undefined;
+      if (!client || !batchId) return null;
       const eventName = status === BatchStatus.REFUNDED ? "BatchRefunded" : "BatchCancelled";
       const event = getAbiItem({ abi: BATCH.abi, name: eventName });
-      const latest = await client.getBlockNumber();
-      const [log] = await findInRanges(blockRanges(fromBlock, latest), (f, t) =>
-        client.getLogs({ address: BATCH.address, event, args: { batchId }, fromBlock: f, toBlock: t }),
+      const head = await latestBlock(client, chainId);
+      // Closed by block B  ⇔  status at B is past ACTIVE (NONE → ACTIVE → REFUNDED/CANCELLED).
+      const block = await firstBlockWhere(fromBlock ?? BATCH.deployBlock, head, async (b) => {
+        const data = await readAtBlock<BatchData>(
+          client,
+          chainId,
+          { address: BATCH.address, abi: BATCH.abi, functionName: "getBatch", args: [batchId] },
+          b,
+        );
+        return data.status > BatchStatus.ACTIVE;
+      });
+      if (block === undefined) return null;
+      const [log] = await logsInBlock(() =>
+        client.getLogs({ address: BATCH.address, event, args: { batchId }, fromBlock: block, toBlock: block }),
       );
       if (!log) return null;
       const timestamp =
@@ -268,69 +283,17 @@ export function useAllocations(batchId: Hex | undefined, recipients: Address[], 
 // Sender's batches
 // ---------------------------------------------------------------------------
 
-export type SentBatch = { batchId: Hex; expiry: bigint; txHash: Hash; blockNumber: bigint };
+export type { SentBatch } from "./useSenderActivity";
 
+/** Airdrops `sender` created, with live on-chain totals (shared Activity query, read from the contract). */
 export function useSenderBatches(sender?: Address) {
-  const config = useConfig();
-  const { BATCH, isBatchEnabled, chainId, contractKey } = useBatchNetwork();
-  const [progress, setProgress] = useState<{ done: number; total: number }>();
-
-  const events = useQuery({
-    queryKey: ["arcclaim-sent-batches", chainId, sender?.toLowerCase()],
-    enabled: !!sender && isBatchEnabled,
-    refetchInterval: 30_000,
-    queryFn: async (): Promise<SentBatch[]> => {
-      const client = getPublicClient(config, { chainId });
-      if (!client || !sender) return [];
-      const latest = await client.getBlockNumber();
-      const found = await scanLogsIncremental<SentBatch>({
-        cacheKey: `arcclaim:sent-batches:v1:${contractKey}:${sender.toLowerCase()}`,
-        startBlock: BATCH.deployBlock,
-        latest,
-        onProgress: setProgress,
-        fetchRange: async (fromBlock, toBlock) => {
-          const logs = await client.getLogs({
-            address: BATCH.address,
-            event: BATCH_CREATED,
-            args: { sender },
-            fromBlock,
-            toBlock,
-          });
-          return logs.map((l) => ({
-            batchId: l.args.batchId!,
-            expiry: l.args.expiry!,
-            txHash: l.transactionHash,
-            blockNumber: l.blockNumber,
-          }));
-        },
-      });
-      const unique = new Map(found.map((b) => [b.batchId, b]));
-      return [...unique.values()].sort((a, b) => (a.blockNumber > b.blockNumber ? -1 : 1));
-    },
-  });
-
-  const list = events.data ?? [];
-  const batches = useReadContracts({
-    contracts: list.map((b) => ({ ...BATCH, functionName: "getBatch", args: [b.batchId], chainId }) as const),
-    query: {
-      enabled: list.length > 0,
-      refetchInterval: (q) => {
-        const all = q.state.data;
-        const settled = !!all && all.every((r) => r.status === "success" && isBatchSettled(r.result as BatchData));
-        return settled ? false : LIVE_POLL_MS;
-      },
-    },
-  });
-
+  const { isBatchEnabled } = useBatchNetwork();
+  const activity = useSenderActivity(isBatchEnabled ? sender : undefined);
   return {
-    batches: list.map((b, i) => {
-      const r = batches.data?.[i];
-      return { ...b, data: r?.status === "success" ? (r.result as BatchData) : undefined };
-    }),
-    isLoading: !!sender && isBatchEnabled && events.isLoading,
-    error: events.error,
-    progress,
-    refetch: events.refetch,
+    batches: activity.data?.batches ?? [],
+    isLoading: !!sender && isBatchEnabled && activity.isLoading,
+    error: activity.error,
+    refetch: activity.refetch,
   };
 }
 

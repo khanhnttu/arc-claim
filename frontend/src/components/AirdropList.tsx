@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useAccount } from "wagmi";
 import { BatchStatus } from "@/contracts/ArcClaimBatch";
 import { useBatchClosure, useSenderBatches, type SentBatch } from "@/hooks/useBatches";
@@ -17,14 +18,18 @@ import {
 import { formatUsdc } from "@/lib/format";
 import { useNetwork } from "./NetworkProvider";
 import { LabelBadge } from "./StatusBadge";
-import { Card, Notice, Skeleton, Spinner, cn } from "./ui";
+import { Card, Notice, Pagination, Skeleton, Spinner, cn, paginate } from "./ui";
+
+const PAGE_SIZE = 6;
 
 /** The connected sender's airdrops with live progress. */
 export function AirdropList({ title = "Your airdrops" }: { title?: string }) {
   const { address } = useAccount();
   const network = useNetwork();
   const { isBatchEnabled } = batchContract(network);
-  const { batches, isLoading, error, progress } = useSenderBatches(address);
+  const { batches, isLoading, error } = useSenderBatches(address);
+  const [page, setPage] = useState(0);
+  const { pages, current, visible } = paginate(batches, page, PAGE_SIZE);
 
   if (!isBatchEnabled || !address) return null;
 
@@ -35,9 +40,7 @@ export function AirdropList({ title = "Your airdrops" }: { title?: string }) {
         <Card className="p-5">
           <div className="flex items-center gap-2 text-sm text-muted">
             <Spinner />
-            {progress
-              ? `Scanning blocks… ${Math.round((progress.done / progress.total) * 100)}%`
-              : "Loading your airdrops…"}
+            Loading your airdrops…
           </div>
           <Skeleton className="mt-4 h-16 w-full" />
         </Card>
@@ -46,20 +49,23 @@ export function AirdropList({ title = "Your airdrops" }: { title?: string }) {
       ) : batches.length === 0 ? (
         <Card className="p-6 text-center text-sm text-muted">No airdrops yet. Create one from the Airdrop page.</Card>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {batches.map((b) => (
-            <AirdropCard key={b.batchId} batch={b} />
-          ))}
-        </div>
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {visible.map((b) => (
+              <AirdropCard key={b.batchId} batch={b} />
+            ))}
+          </div>
+          <Pagination page={current} pages={pages} total={batches.length} noun="airdrops" onPage={setPage} />
+        </>
       )}
     </section>
   );
 }
 
-function AirdropCard({ batch }: { batch: SentBatch & { data?: BatchData } }) {
+function AirdropCard({ batch }: { batch: SentBatch }) {
   const now = useNow();
   const d = batch.data;
-  const closure = useBatchClosure(batch.batchId, d?.status, batch.blockNumber);
+  const closure = useBatchClosure(batch.batchId, d.status);
 
   return (
     <Link
